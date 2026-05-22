@@ -2,7 +2,7 @@ import { currentUser } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import Link from "next/link";
-import { Plus, Download, AlertTriangle, Clock, CheckCircle2, Server } from "lucide-react";
+import { Plus, Download, AlertTriangle, Clock, CheckCircle2, Server, FileText } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate } from "@/lib/utils";
 import { FilterBar } from "./FilterBar";
@@ -23,7 +23,7 @@ export default async function Dashboard({ searchParams }: Props) {
   if (searchParams.q) {
     where.OR = [
       { title: { contains: searchParams.q, mode: "insensitive" } },
-      { team: { contains: searchParams.q, mode: "insensitive" } },
+      { projectName: { contains: searchParams.q, mode: "insensitive" } },
       { managerName: { contains: searchParams.q, mode: "insensitive" } },
     ];
   }
@@ -64,20 +64,26 @@ export default async function Dashboard({ searchParams }: Props) {
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-muted text-sm">
             {canSeeAll
-              ? "All teams' infrastructure requirements."
+              ? "All projects' infrastructure requirements."
               : "Requirements you raised or manage."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {canSeeAll && (
-            <a className="btn" href="/api/requirements/export">
-              <Download size={14} /> Export all CSV
-            </a>
-          )}
-          {canSeeAll && (
-            <a className="btn" href="/api/requirements/export?new=true">
-              <Download size={14} /> Export NEW
-            </a>
+            <>
+              <a className="btn" href="/api/requirements/export">
+                <Download size={14} /> CSV (all)
+              </a>
+              <a className="btn" href="/api/requirements/export?new=true">
+                <Download size={14} /> CSV (new)
+              </a>
+              <a className="btn" href="/api/requirements/export?format=pdf">
+                <FileText size={14} /> PDF (all)
+              </a>
+              <a className="btn" href="/api/requirements/export?format=pdf&new=true">
+                <FileText size={14} /> PDF (new)
+              </a>
+            </>
           )}
           <Link href="/requirements/new" className="btn btn-primary">
             <Plus size={14} /> New requirement
@@ -94,8 +100,8 @@ export default async function Dashboard({ searchParams }: Props) {
         />
         <Stat
           icon={<CheckCircle2 size={16} />}
-          label="Approved"
-          value={statTotals.APPROVED ?? 0}
+          label="Provisioned"
+          value={statTotals.PROVISIONED ?? 0}
         />
         <Stat
           icon={<AlertTriangle size={16} />}
@@ -112,10 +118,10 @@ export default async function Dashboard({ searchParams }: Props) {
           <thead>
             <tr>
               <th>Title</th>
-              <th>Team</th>
+              <th>Project</th>
               <th>Env</th>
               <th>VMs</th>
-              <th>Pods</th>
+              <th>K8s</th>
               <th>Manager</th>
               <th>Raised</th>
               <th>Expiry</th>
@@ -138,10 +144,10 @@ export default async function Dashboard({ searchParams }: Props) {
                   </Link>
                   <div className="text-xs text-muted">{r.raiser.email}</div>
                 </td>
-                <td>{r.team}</td>
+                <td>{r.projectName}</td>
                 <td><span className="chip">{r.environment}</span></td>
                 <td>{r.vmCount}</td>
-                <td>{r.podCount}</td>
+                <td>{r.needsK8s ? "yes" : "—"}</td>
                 <td>
                   <div>{r.managerName}</div>
                   <div className="text-xs text-muted">{r.managerEmail}</div>
@@ -173,13 +179,7 @@ function Stat({
     <div className="card p-4">
       <div className="flex items-center justify-between">
         <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
-        <div
-          className={
-            tone === "warning" ? "text-warning" : "text-accent"
-          }
-        >
-          {icon}
-        </div>
+        <div className={tone === "warning" ? "text-warning" : "text-accent"}>{icon}</div>
       </div>
       <div className="text-2xl font-semibold mt-1">{value}</div>
     </div>

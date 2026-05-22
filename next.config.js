@@ -3,7 +3,7 @@ const nextConfig = {
   output: "standalone",
   experimental: {
     instrumentationHook: true,
-    serverComponentsExternalPackages: ["@prisma/client", "bcryptjs"],
+    serverComponentsExternalPackages: ["@prisma/client", "bcryptjs", "pdfkit"],
   },
 };
 

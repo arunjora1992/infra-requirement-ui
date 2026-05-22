@@ -33,7 +33,7 @@ export function Navbar() {
           </Link>
           {isInfra && (
             <a href="/api/requirements/export?new=true" className="btn btn-ghost">
-              <Download size={14} /> Export new
+              <Download size={14} /> Export
             </a>
           )}
           {isAdmin && (

@@ -12,6 +12,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     where: { id: params.id },
     include: {
       raiser: { select: { id: true, name: true, email: true } },
+      vmSpecs: { orderBy: { createdAt: "asc" } },
       attachments: true,
       events: { orderBy: { createdAt: "desc" } },
       alertLogs: { orderBy: { sentAt: "desc" } },
@@ -47,7 +48,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   const data = parsed.data;
 
-  // Only infra/admin can change status freely. Raiser can only re-submit a draft.
   if (data.status && !isInfra) {
     if (!(existing.status === "DRAFT" && data.status === "SUBMITTED")) {
       return NextResponse.json({ error: "Cannot change status" }, { status: 403 });

@@ -48,86 +48,114 @@ enum AlertKind {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  name          String?
-  image         String?
-  role          Role     @default(USER)
-  team          String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  image     String?
+  role      Role     @default(USER)
+  team      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // NextAuth relations
-  accounts      Account[]
-  sessions      Session[]
+  accounts Account[]
+  sessions Session[]
 
-  raisedRequirements   Requirement[] @relation("Raiser")
-  managedRequirements  Requirement[] @relation("Manager")
+  raisedRequirements  Requirement[] @relation("Raiser")
+  managedRequirements Requirement[] @relation("Manager")
 }
 
 model Requirement {
-  id              String            @id @default(cuid())
-  title           String
-  description     String?
-  team            String
-  environment     Environment       @default(DEV)
-  priority        Priority          @default(MEDIUM)
-  status          RequirementStatus @default(SUBMITTED)
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  projectName String
+  environment Environment       @default(DEV)
+  priority    Priority          @default(MEDIUM)
+  status      RequirementStatus @default(SUBMITTED)
 
-  // Compute
-  vmCount         Int               @default(0)
-  vmCpu           Int?              // cores per VM
-  vmMemoryGB      Int?              // RAM per VM
-  vmStorageGB     Int?              // disk per VM
-  osImage         String?
+  // Aggregate counts (derived from VmSpec[]; kept for fast filtering)
+  vmCount Int @default(0)
 
-  podCount        Int               @default(0)
-  podCpu          String?           // e.g. "500m"
-  podMemory       String?           // e.g. "1Gi"
-  k8sCluster      String?
-  k8sNamespace    String?
+  // Kubernetes (namespace-level quota — pod-level sizing is left to deployments)
+  needsK8s          Boolean  @default(false)
+  k8sNamespace      String?
+  nsQuotaCpu        Int?     // total vCPU cores for the namespace
+  nsQuotaMemoryGB   Int?     // total memory in GB for the namespace
+  nsQuotaStorageGB  Int?     // total persistent storage in GB
+  utilityServices   String[] @default([]) // Kafka, Redis, NiFi, RabbitMQ, MongoDB, ...
 
   // Network / extras
-  needsLoadBalancer Boolean         @default(false)
-  needsPublicIp     Boolean         @default(false)
-  needsDatabase     Boolean         @default(false)
+  needsLoadBalancer Boolean @default(false)
+  needsPublicIp     Boolean @default(false)
+  needsDatabase     Boolean @default(false)
   databaseEngine    String?
-  storageGB         Int?            // additional shared/object storage
+  storageGB         Int? // additional shared/object storage
 
   // Lifecycle
-  raisedAt        DateTime          @default(now())
-  startDate       DateTime?
-  tenureDays      Int               // requirement tenure
-  expiryDate      DateTime
-  costCenter      String?
-  justification   String?
+  raisedAt      DateTime  @default(now())
+  startDate     DateTime?
+  tenureDays    Int
+  expiryDate    DateTime
+  costCenter    String?
+  justification String
 
-  raiserId        String
-  raiser          User              @relation("Raiser", fields: [raiserId], references: [id])
-  managerId       String?
-  manager         User?             @relation("Manager", fields: [managerId], references: [id])
-  managerEmail    String            // capture even if manager has no account yet
-  managerName     String
+  // Infra provisioning record (filled by INFRA after provisioning)
+  provisionedAt           DateTime?
+  provisionedNamespace    String?
+  provisioningNotes       String?
 
-  attachments     Attachment[]
-  alertLogs       AlertLog[]
-  events          RequirementEvent[]
+  raiserId     String
+  raiser       User    @relation("Raiser", fields: [raiserId], references: [id])
+  managerId    String?
+  manager      User?   @relation("Manager", fields: [managerId], references: [id])
+  managerEmail String
+  managerName  String
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  vmSpecs     VmSpec[]
+  attachments Attachment[]
+  alertLogs   AlertLog[]
+  events      RequirementEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([expiryDate])
   @@index([raiserId])
 }
 
+model VmSpec {
+  id            String      @id @default(cuid())
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  // Requested (filled by raiser)
+  name      String // logical name, e.g. "web-1"
+  purpose   String?
+  cpu       Int // vCPU
+  memoryGB  Int
+  storageGB Int
+  osImage   String?
+
+  // Provisioned (filled by INFRA team)
+  hostname  String?
+  ipAddress String?
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([requirementId])
+}
+
 model Attachment {
   id            String      @id @default(cuid())
   requirementId String
   requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
-  kind          String      @default("BOQ") // BOQ, OTHER
+  kind          String      @default("BOQ")
   originalName  String
-  storedName    String      // filename on disk
+  storedName    String
   mimeType      String
   sizeBytes     Int
   uploadedById  String?
@@ -139,11 +167,8 @@ model AlertLog {
   requirementId String
   requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   kind          AlertKind
-  // For PRE_EXPIRY_WARNING this is the warning day (e.g. 7).
-  // For POST_EXPIRY_DAILY this is days-past-expiry (1..7).
-  // For SHUTDOWN_NOTICE this is 7 (always once).
   dayOffset     Int
-  recipients    String      // comma-separated emails
+  recipients    String
   subject       String
   sentAt        DateTime    @default(now())
 
@@ -156,7 +181,7 @@ model RequirementEvent {
   requirementId String
   requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   actorEmail    String?
-  type          String      // CREATED, STATUS_CHANGED, ATTACHMENT_ADDED, etc.
+  type          String
   message       String?
   metadata      Json?
   createdAt     DateTime    @default(now())
@@ -166,19 +191,19 @@ model RequirementEvent {
 
 // --- NextAuth tables ---
 model Account {
-  id                 String  @id @default(cuid())
-  userId             String
-  type               String
-  provider           String
-  providerAccountId  String
-  refresh_token      String? @db.Text
-  access_token       String? @db.Text
-  expires_at         Int?
-  token_type         String?
-  scope              String?
-  id_token           String? @db.Text
-  session_state      String?
-  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }

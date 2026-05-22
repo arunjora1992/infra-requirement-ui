@@ -11,18 +11,18 @@ export async function GET(req: Request) {
   const user = await requireUser();
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status") ?? undefined;
-  const team = searchParams.get("team") ?? undefined;
+  const projectName = searchParams.get("projectName") ?? undefined;
   const q = searchParams.get("q") ?? undefined;
   const scope = searchParams.get("scope") ?? "auto"; // auto | mine | all
 
   const where: any = {};
   if (status) where.status = status as any;
-  if (team) where.team = team;
+  if (projectName) where.projectName = projectName;
   if (q) {
     where.OR = [
       { title: { contains: q, mode: "insensitive" } },
       { description: { contains: q, mode: "insensitive" } },
-      { team: { contains: q, mode: "insensitive" } },
+      { projectName: { contains: q, mode: "insensitive" } },
       { managerName: { contains: q, mode: "insensitive" } },
     ];
   }
@@ -41,6 +41,7 @@ export async function GET(req: Request) {
     orderBy: { createdAt: "desc" },
     include: {
       raiser: { select: { id: true, name: true, email: true } },
+      vmSpecs: true,
       _count: { select: { attachments: true } },
     },
     take: 500,
@@ -63,19 +64,16 @@ export async function POST(req: Request) {
     data: {
       title: data.title,
       description: data.description,
-      team: data.team,
+      projectName: data.projectName,
       environment: data.environment,
       priority: data.priority,
-      vmCount: data.vmCount,
-      vmCpu: data.vmCpu,
-      vmMemoryGB: data.vmMemoryGB,
-      vmStorageGB: data.vmStorageGB,
-      osImage: data.osImage,
-      podCount: data.podCount,
-      podCpu: data.podCpu,
-      podMemory: data.podMemory,
-      k8sCluster: data.k8sCluster,
+      vmCount: data.vmSpecs.length,
+      needsK8s: data.needsK8s,
       k8sNamespace: data.k8sNamespace,
+      nsQuotaCpu: data.nsQuotaCpu,
+      nsQuotaMemoryGB: data.nsQuotaMemoryGB,
+      nsQuotaStorageGB: data.nsQuotaStorageGB,
+      utilityServices: data.utilityServices,
       needsLoadBalancer: data.needsLoadBalancer,
       needsPublicIp: data.needsPublicIp,
       needsDatabase: data.needsDatabase,
@@ -90,6 +88,16 @@ export async function POST(req: Request) {
       managerName: data.managerName,
       raiserId: user.id,
       status: "SUBMITTED",
+      vmSpecs: {
+        create: data.vmSpecs.map((v) => ({
+          name: v.name,
+          purpose: v.purpose,
+          cpu: v.cpu,
+          memoryGB: v.memoryGB,
+          storageGB: v.storageGB,
+          osImage: v.osImage,
+        })),
+      },
       events: {
         create: {
           type: "CREATED",
@@ -98,9 +106,9 @@ export async function POST(req: Request) {
         },
       },
     },
+    include: { vmSpecs: true },
   });
 
-  // Fire and forget infra notification
   notifyInfraOfNew(created).catch((e) => console.error("notifyInfraOfNew", e));
 
   return NextResponse.json({ item: created }, { status: 201 });

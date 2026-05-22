@@ -32,11 +32,11 @@ function detailsTable(r: Requirement) {
     `<tr><td style="padding:6px 12px 6px 0;color:#8b95b8">${k}</td><td style="padding:6px 0;color:#e6ecff">${v ?? "—"}</td></tr>`;
   return `<table style="width:100%;border-collapse:collapse;margin:8px 0 16px 0">
     ${row("Title", r.title)}
-    ${row("Team", r.team)}
+    ${row("Project", r.projectName)}
     ${row("Environment", r.environment)}
     ${row("Priority", r.priority)}
     ${row("VM count", r.vmCount)}
-    ${row("Pod count", r.podCount)}
+    ${row("K8s namespace", r.needsK8s ? r.k8sNamespace ?? "yes" : "—")}
     ${row("Raised", fmtDate(r.raisedAt))}
     ${row("Expiry", fmtDate(r.expiryDate))}
     ${row("Manager", `${r.managerName} (${r.managerEmail})`)}
@@ -51,7 +51,7 @@ export function preExpiryEmail(r: Requirement, daysLeft: number) {
       `⚠ Requirement expires in ${daysLeft} day(s)`,
       accent,
       `<p style="color:#cbd2e5">
-         The infrastructure requirement <strong>${r.title}</strong> for team <strong>${r.team}</strong>
+         The infrastructure requirement <strong>${r.title}</strong> for project <strong>${r.projectName}</strong>
          is scheduled to expire on <strong>${fmtDate(r.expiryDate)}</strong>.
          If it is still needed, request an extension before this date.
        </p>
@@ -85,7 +85,7 @@ export function shutdownEmail(r: Requirement) {
       accent,
       `<p style="color:#cbd2e5">
          The grace period has ended. Infrastructure for <strong>${r.title}</strong>
-         (team <strong>${r.team}</strong>) is scheduled for shutdown.
+         (project <strong>${r.projectName}</strong>) is scheduled for shutdown.
          Contact the Infra team immediately if this is incorrect.
        </p>
        ${detailsTable(r)}`
