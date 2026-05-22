@@ -40,10 +40,11 @@ export async function GET(req: Request) {
     });
   }
 
-  const rows = items.flatMap((r) => {
+  type Row = Record<string, string | number | boolean | Date | null | undefined>;
+  const rows: Row[] = items.flatMap((r): Row[] => {
     // One row per VM (so per-VM details are visible in CSV).
     // For requirements with no VMs, still emit a single row.
-    const common = {
+    const common: Row = {
       id: r.id,
       title: r.title,
       projectName: r.projectName,
@@ -83,16 +84,16 @@ export async function GET(req: Request) {
       return [
         {
           ...common,
-          vmIndex: "",
-          vmName: "",
-          vmPurpose: "",
-          vmCpu: "",
-          vmMemoryGB: "",
-          vmStorageGB: "",
-          vmOs: "",
-          vmHostname: "",
-          vmIp: "",
-          vmNotes: "",
+          vmIndex: null,
+          vmName: null,
+          vmPurpose: null,
+          vmCpu: null,
+          vmMemoryGB: null,
+          vmStorageGB: null,
+          vmOs: null,
+          vmHostname: null,
+          vmIp: null,
+          vmNotes: null,
         },
       ];
     }
