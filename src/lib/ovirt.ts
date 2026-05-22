@@ -1,4 +1,4 @@
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import type { OvirtCluster } from "@prisma/client";
 import { decrypt } from "./crypto";
 
@@ -21,18 +21,30 @@ function authHeader(cluster: OvirtCluster) {
   return "Basic " + Buffer.from(`${cluster.username}:${pwd}`).toString("base64");
 }
 
+function describeCause(err: any): string {
+  const c = err?.cause;
+  if (!c) return err?.message ?? String(err);
+  const code = c.code || c.errno || "";
+  const detail = c.message || c.reason || String(c);
+  return `${err.message}${code ? ` [${code}]` : ""}${detail ? ` — ${detail}` : ""}`;
+}
+
 async function ovirtGet<T = any>(cluster: OvirtCluster, path: string): Promise<T> {
   const url = `${cluster.baseUrl.replace(/\/$/, "")}/ovirt-engine/api/${path.replace(/^\//, "")}`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: authHeader(cluster),
-      Accept: "application/json",
-      Version: "4",
-    },
-    // @ts-expect-error undici dispatcher
-    dispatcher: dispatcherFor(cluster),
-    signal: AbortSignal.timeout(15_000),
-  });
+  let res;
+  try {
+    res = await undiciFetch(url, {
+      headers: {
+        Authorization: authHeader(cluster),
+        Accept: "application/json",
+        Version: "4",
+      },
+      dispatcher: dispatcherFor(cluster),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err: any) {
+    throw new Error(`Cannot reach ${url}: ${describeCause(err)}`);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`oVirt ${res.status} ${res.statusText} – ${body.slice(0, 240)}`);

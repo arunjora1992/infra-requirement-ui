@@ -31,7 +31,7 @@ services:
       - uploads:/app/uploads
       # Uncomment to share the VM's /etc/hosts with the container
       # (so oVirt/RHEV hostnames resolved on the host also resolve inside the pod):
-      # - /etc/hosts:/etc/hosts:ro
+      - /etc/hosts:/etc/hosts:ro
     # Or, list individual host overrides here (kept in sync manually):
     # extra_hosts:
     #   - "ovirt.example.com:10.0.12.50"
