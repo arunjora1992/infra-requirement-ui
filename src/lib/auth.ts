@@ -34,6 +34,7 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
       authorization: { params: { prompt: "select_account" } },
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
   pages: { signIn: "/login" },
@@ -41,35 +42,29 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user }) {
       if (!user.email) return false;
       if (!domainAllowed(user.email)) return false;
-      // Bootstrap role on first sign-in
-      const existing = await prisma.user.findUnique({ where: { email: user.email } });
-      if (!existing) {
-        await prisma.user.create({
-          data: {
-            email: user.email,
-            name: user.name ?? undefined,
-            image: user.image ?? undefined,
-            role: roleForEmail(user.email),
-          },
-        });
-      } else {
-        // Allow env-driven elevation when admin/infra/manager lists change
-        const desired = roleForEmail(user.email);
-        if (desired !== "USER" && existing.role !== desired && existing.role !== "ADMIN") {
-          await prisma.user.update({ where: { id: existing.id }, data: { role: desired } });
-        }
-      }
       return true;
     },
     async jwt({ token, user }) {
       if (user?.email) token.email = user.email;
-      if (token.email) {
-        const dbUser = await prisma.user.findUnique({ where: { email: token.email } });
-        if (dbUser) {
-          token.uid = dbUser.id;
+      if (!token.email) return token;
+
+      // The PrismaAdapter creates the User row on first sign-in; we just enrich the JWT
+      // and apply env-driven role elevation here (after the row exists).
+      const dbUser = await prisma.user.findUnique({ where: { email: token.email } });
+      if (dbUser) {
+        const desired = roleForEmail(dbUser.email);
+        if (desired !== "USER" && dbUser.role !== desired && dbUser.role !== "ADMIN") {
+          const updated = await prisma.user.update({
+            where: { id: dbUser.id },
+            data: { role: desired },
+          });
+          token.role = updated.role;
+          token.team = updated.team ?? undefined;
+        } else {
           token.role = dbUser.role;
           token.team = dbUser.team ?? undefined;
         }
+        token.uid = dbUser.id;
       }
       return token;
     },
