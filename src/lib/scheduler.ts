@@ -1,10 +1,14 @@
 import cron from "node-cron";
 import { getAlertConfig, runAlertSweep } from "./alerts";
+import { refreshAllClusters } from "./ovirt";
+import { prisma } from "./db";
 
-let task: cron.ScheduledTask | null = null;
-let currentExpr: string | null = null;
+let alertTask: cron.ScheduledTask | null = null;
+let currentAlertExpr: string | null = null;
+let clusterTask: cron.ScheduledTask | null = null;
+let currentClusterExpr: string | null = null;
 
-async function applyConfig() {
+async function applyAlertCron() {
   let cfg;
   try {
     cfg = await getAlertConfig();
@@ -12,23 +16,23 @@ async function applyConfig() {
     console.error("[scheduler] failed to read AlertConfig:", e);
     return;
   }
-  const expr = (cfg.enabled ? cfg.cronExpression : null) || null;
+  const expr = cfg.enabled ? cfg.cronExpression : null;
   if (!expr) {
-    if (task) {
-      task.stop();
-      task = null;
-      currentExpr = null;
-      console.log("[scheduler] disabled");
+    if (alertTask) {
+      alertTask.stop();
+      alertTask = null;
+      currentAlertExpr = null;
+      console.log("[scheduler] alerts disabled");
     }
     return;
   }
   if (!cron.validate(expr)) {
-    console.error(`[scheduler] invalid cron expression in AlertConfig: ${expr}`);
+    console.error(`[scheduler] invalid alert cron: ${expr}`);
     return;
   }
-  if (currentExpr === expr && task) return;
-  if (task) task.stop();
-  task = cron.schedule(expr, async () => {
+  if (currentAlertExpr === expr && alertTask) return;
+  if (alertTask) alertTask.stop();
+  alertTask = cron.schedule(expr, async () => {
     try {
       console.log("[scheduler] running alert sweep");
       const summary = await runAlertSweep();
@@ -37,12 +41,34 @@ async function applyConfig() {
       console.error("[scheduler] sweep failed", err);
     }
   });
-  currentExpr = expr;
-  console.log(`[scheduler] started with cron "${expr}"`);
+  currentAlertExpr = expr;
+  console.log(`[scheduler] alerts cron "${expr}"`);
+}
+
+function applyClusterCron() {
+  const expr = process.env.CLUSTER_REFRESH_CRON || "0 * * * *"; // hourly on the hour
+  if (!cron.validate(expr)) {
+    console.error(`[scheduler] invalid CLUSTER_REFRESH_CRON: ${expr}`);
+    return;
+  }
+  if (currentClusterExpr === expr && clusterTask) return;
+  if (clusterTask) clusterTask.stop();
+  clusterTask = cron.schedule(expr, async () => {
+    try {
+      console.log("[scheduler] refreshing cluster capacity");
+      const r = await refreshAllClusters(prisma);
+      console.log("[scheduler] cluster refresh:", r);
+    } catch (err) {
+      console.error("[scheduler] cluster refresh failed", err);
+    }
+  });
+  currentClusterExpr = expr;
+  console.log(`[scheduler] cluster refresh cron "${expr}"`);
 }
 
 export async function reloadScheduler() {
-  await applyConfig();
+  await applyAlertCron();
+  applyClusterCron();
 }
 
 let started = false;
@@ -53,7 +79,14 @@ export function startScheduler() {
     return;
   }
   started = true;
-  applyConfig().catch((e) => console.error("[scheduler] initial load failed", e));
-  // Re-check config every 5 minutes so admin changes pick up without restart
-  setInterval(() => applyConfig().catch(() => {}), 5 * 60 * 1000);
+  applyAlertCron().catch((e) => console.error("[scheduler] alert init failed", e));
+  applyClusterCron();
+  // Re-check alert config every 5 min so admin changes take effect without restart
+  setInterval(() => applyAlertCron().catch(() => {}), 5 * 60 * 1000);
+  // Kick off an immediate cluster refresh on boot (10s grace for DB)
+  setTimeout(() => {
+    refreshAllClusters(prisma)
+      .then((r) => console.log("[scheduler] startup cluster refresh:", r))
+      .catch((e) => console.error("[scheduler] startup refresh failed", e));
+  }, 10_000);
 }

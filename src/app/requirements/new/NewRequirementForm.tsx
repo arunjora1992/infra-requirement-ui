@@ -2,7 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Send, Loader2, Plus, Trash2, Sigma, AlertTriangle } from "lucide-react";
+import {
+  Upload,
+  Send,
+  Loader2,
+  Plus,
+  Trash2,
+  Sigma,
+  AlertTriangle,
+  Activity,
+  Info,
+} from "lucide-react";
 import { UTILITY_SERVICES } from "@/lib/constants";
 
 type OptionsBundle = {
@@ -21,6 +31,11 @@ type CapacityBundle = {
     storageGBTotal: number;
     storageGBAvailable: number;
   };
+  clusters: {
+    id: string;
+    name: string;
+    lastSyncedAt: string | null;
+  }[];
 };
 
 type VmRow = {
@@ -196,6 +211,9 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
           <option key={o.id} value={o.name} />
         ))}
       </datalist>
+
+      <CapacityBanner capacity={capacity} totals={totals} />
+
       <Section title="Requirement" required>
         <Field label="Title *" name="title" required placeholder="e.g. Billing service cluster" />
         <Field label="Project name *" name="projectName" required defaultValue={defaultProject} />
@@ -588,6 +606,136 @@ function Stat({
           {available}
         </div>
       )}
+    </div>
+  );
+}
+
+function CapacityBanner({
+  capacity,
+  totals,
+}: {
+  capacity: CapacityBundle | null;
+  totals: { totalCpu: number; totalMem: number; totalStorage: number };
+}) {
+  if (!capacity)
+    return (
+      <div className="card p-4 text-sm text-muted flex items-center gap-2">
+        <Loader2 size={14} className="animate-spin" /> Loading cluster capacity…
+      </div>
+    );
+  if (!capacity.hasData) {
+    return (
+      <div className="card p-4 text-sm flex items-start gap-2">
+        <Info size={16} className="text-muted shrink-0 mt-0.5" />
+        <div>
+          <div className="font-medium">No cluster capacity synced yet.</div>
+          <div className="text-muted text-xs mt-0.5">
+            Ask an admin to add an oVirt/RHEV cluster in Admin → Clusters and
+            click "Refresh". The system also pulls capacity automatically every hour.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const cpuOver = totals.totalCpu > capacity.totals.cpuCoresAvailable;
+  const memOver = totals.totalMem > capacity.totals.memoryGBAvailable;
+  const stoOver = totals.totalStorage > capacity.totals.storageGBAvailable;
+  const anyOver = cpuOver || memOver || stoOver;
+  const lastSync = capacity.clusters
+    .map((c) => c.lastSyncedAt)
+    .filter(Boolean)
+    .sort()
+    .pop();
+  return (
+    <div
+      className={`card p-5 ${anyOver ? "border-warning/60 bg-warning/5" : "border-success/40"}`}
+    >
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <Activity size={16} className={anyOver ? "text-warning" : "text-success"} />
+          <div className="text-[11px] uppercase tracking-[0.2em] text-muted">
+            Cluster availability (live)
+          </div>
+        </div>
+        <div className="text-[11px] text-muted">
+          {capacity.clusters.length} cluster(s) · last sync:{" "}
+          {lastSync ? new Date(lastSync).toLocaleString() : "never"}
+          {" "}· refreshes hourly
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <AvailCell
+          label="CPU cores"
+          available={capacity.totals.cpuCoresAvailable}
+          total={capacity.totals.cpuCoresTotal}
+          requested={totals.totalCpu}
+          over={cpuOver}
+        />
+        <AvailCell
+          label="Memory (GB)"
+          available={capacity.totals.memoryGBAvailable}
+          total={capacity.totals.memoryGBTotal}
+          requested={totals.totalMem}
+          over={memOver}
+        />
+        <AvailCell
+          label="Storage (GB)"
+          available={capacity.totals.storageGBAvailable}
+          total={capacity.totals.storageGBTotal}
+          requested={totals.totalStorage}
+          over={stoOver}
+        />
+      </div>
+      <div className="text-[11px] text-muted mt-3 flex items-start gap-1">
+        <Info size={12} className="mt-0.5 shrink-0" />
+        <span>
+          CPU "available" is based on current host utilization across all UP hosts —
+          requirements may still fit due to overcommit. Memory and storage are
+          reservation-based.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AvailCell({
+  label,
+  available,
+  total,
+  requested,
+  over,
+}: {
+  label: string;
+  available: number;
+  total: number;
+  requested: number;
+  over: boolean;
+}) {
+  const pctFree = total > 0 ? (available / total) * 100 : 0;
+  return (
+    <div className="rounded-xl border border-border/70 bg-surface-2/50 p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-muted">{label}</div>
+        {over && <AlertTriangle size={12} className="text-warning" />}
+      </div>
+      <div className={`text-xl font-semibold mt-1 ${over ? "text-warning" : ""}`}>
+        {available.toLocaleString()}
+        <span className="text-xs text-muted ml-1 font-normal">/ {total.toLocaleString()} free</span>
+      </div>
+      <div className="text-[10px] text-muted mt-0.5">
+        requested: {requested.toLocaleString()}
+        {over ? (
+          <span className="text-warning ml-1">
+            (over by {(requested - available).toLocaleString()})
+          </span>
+        ) : null}
+      </div>
+      <div className="h-1.5 rounded-full bg-border/60 mt-2 overflow-hidden">
+        <div
+          className={`h-full ${over ? "bg-warning" : "bg-success"}`}
+          style={{ width: `${Math.min(100, pctFree)}%` }}
+        />
+      </div>
     </div>
   );
 }

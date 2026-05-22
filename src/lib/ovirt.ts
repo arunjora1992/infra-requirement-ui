@@ -80,6 +80,28 @@ function toInt(v: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+export async function refreshAllClusters(prismaClient: typeof import("./db").prisma) {
+  const clusters = await prismaClient.ovirtCluster.findMany({ where: { enabled: true } });
+  const out: { id: string; name: string; ok: boolean; error?: string }[] = [];
+  for (const c of clusters) {
+    try {
+      const cap = await fetchCapacity(c);
+      await prismaClient.ovirtCluster.update({
+        where: { id: c.id },
+        data: { ...cap, lastSyncedAt: new Date(), lastError: null },
+      });
+      out.push({ id: c.id, name: c.name, ok: true });
+    } catch (e: any) {
+      await prismaClient.ovirtCluster.update({
+        where: { id: c.id },
+        data: { lastError: String(e?.message ?? e).slice(0, 500) },
+      });
+      out.push({ id: c.id, name: c.name, ok: false, error: String(e?.message ?? e) });
+    }
+  }
+  return out;
+}
+
 export async function testConnection(cluster: OvirtCluster): Promise<{ ok: true; product?: string }> {
   const r = await ovirtGet<any>(cluster, "");
   return { ok: true, product: r?.product_info?.name ?? "oVirt" };
