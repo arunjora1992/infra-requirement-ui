@@ -27,26 +27,40 @@ async function infraTeamEmails(): Promise<string[]> {
   return infraUsers.map((u) => u.email);
 }
 
-function recipientsFor(r: Requirement, raiserEmail: string, infraEmails: string[]) {
+export async function getAlertConfig() {
+  let cfg = await prisma.alertConfig.findUnique({ where: { id: "default" } });
+  if (!cfg) {
+    cfg = await prisma.alertConfig.create({ data: { id: "default" } });
+  }
+  return cfg;
+}
+
+function recipientsFor(
+  r: Requirement,
+  raiserEmail: string,
+  infraEmails: string[],
+  cfg: { notifyRaiser: boolean; notifyManager: boolean; notifyInfra: boolean; ccEmails: string[] },
+) {
   const set = new Set<string>();
-  set.add(raiserEmail);
-  if (r.managerEmail) set.add(r.managerEmail);
-  for (const e of infraEmails) set.add(e);
+  if (cfg.notifyRaiser) set.add(raiserEmail);
+  if (cfg.notifyManager && r.managerEmail) set.add(r.managerEmail);
+  if (cfg.notifyInfra) for (const e of infraEmails) set.add(e);
+  for (const e of cfg.ccEmails) set.add(e);
   return Array.from(set);
 }
 
-/**
- * Daily sweep:
- * - 7 days before expiry: send pre-expiry warning (once)
- * - 0..7 days after expiry: send daily post-expiry mail (once per day)
- * - 7 days after expiry: also send shutdown notice (once) and flip status to SHUTDOWN
- */
 export async function runAlertSweep(now: Date = new Date()) {
+  const cfg = await getAlertConfig();
+  if (!cfg.enabled) {
+    console.log("[alerts] disabled in AlertConfig");
+    return { preWarning: 0, postDaily: 0, shutdown: 0, skipped: 0 };
+  }
+
   const today = startOfDay(now);
   const horizonStart = new Date(today);
-  horizonStart.setDate(horizonStart.getDate() - 10);
+  horizonStart.setDate(horizonStart.getDate() - (cfg.shutdownAfterDays + 3));
   const horizonEnd = new Date(today);
-  horizonEnd.setDate(horizonEnd.getDate() + 10);
+  horizonEnd.setDate(horizonEnd.getDate() + (cfg.preExpiryDays + 3));
 
   const requirements = await prisma.requirement.findMany({
     where: {
@@ -57,37 +71,32 @@ export async function runAlertSweep(now: Date = new Date()) {
   });
 
   const infraEmails = await infraTeamEmails();
-  const summary = {
-    preWarning: 0,
-    postDaily: 0,
-    shutdown: 0,
-    skipped: 0,
-  };
+  const summary = { preWarning: 0, postDaily: 0, shutdown: 0, skipped: 0 };
 
   for (const r of requirements) {
-    const delta = daysBetween(r.expiryDate, today); // >0 = future, <0 = past
-    const raiserEmail = r.raiser.email;
-    const recipients = recipientsFor(r, raiserEmail, infraEmails);
+    const delta = daysBetween(r.expiryDate, today); // >0 future, <0 past
+    const recipients = recipientsFor(r, r.raiser.email, infraEmails, cfg);
+    if (recipients.length === 0) continue;
 
-    // 7-day pre-warning
-    if (delta === 7) {
+    // pre-expiry warning at T-N
+    if (delta === cfg.preExpiryDays) {
       const already = await prisma.alertLog.findUnique({
         where: {
           requirementId_kind_dayOffset: {
             requirementId: r.id,
             kind: "PRE_EXPIRY_WARNING",
-            dayOffset: 7,
+            dayOffset: cfg.preExpiryDays,
           },
         },
       });
       if (!already) {
-        const tpl = preExpiryEmail(r, 7);
+        const tpl = preExpiryEmail(r, cfg.preExpiryDays);
         await sendMail({ to: recipients, subject: tpl.subject, html: tpl.html });
         await prisma.alertLog.create({
           data: {
             requirementId: r.id,
             kind: "PRE_EXPIRY_WARNING",
-            dayOffset: 7,
+            dayOffset: cfg.preExpiryDays,
             recipients: recipients.join(","),
             subject: tpl.subject,
           },
@@ -96,9 +105,9 @@ export async function runAlertSweep(now: Date = new Date()) {
       } else summary.skipped++;
     }
 
-    // post-expiry daily mails for 1..7 days past expiry
-    if (delta <= 0 && delta >= -7) {
-      const daysSince = -delta; // 0..7
+    // post-expiry daily reminders 1..N
+    if (delta <= 0 && delta >= -cfg.postExpiryReminderDays) {
+      const daysSince = -delta;
       if (daysSince >= 1) {
         const already = await prisma.alertLog.findUnique({
           where: {
@@ -124,46 +133,46 @@ export async function runAlertSweep(now: Date = new Date()) {
           summary.postDaily++;
         } else summary.skipped++;
       }
+    }
 
-      // Day 7 shutdown notice
-      if (daysSince === 7) {
-        const already = await prisma.alertLog.findUnique({
-          where: {
-            requirementId_kind_dayOffset: {
-              requirementId: r.id,
-              kind: "SHUTDOWN_NOTICE",
-              dayOffset: 7,
-            },
+    // shutdown at T+shutdownAfterDays
+    if (delta === -cfg.shutdownAfterDays) {
+      const already = await prisma.alertLog.findUnique({
+        where: {
+          requirementId_kind_dayOffset: {
+            requirementId: r.id,
+            kind: "SHUTDOWN_NOTICE",
+            dayOffset: cfg.shutdownAfterDays,
+          },
+        },
+      });
+      if (!already) {
+        const tpl = shutdownEmail(r);
+        await sendMail({ to: recipients, subject: tpl.subject, html: tpl.html });
+        await prisma.alertLog.create({
+          data: {
+            requirementId: r.id,
+            kind: "SHUTDOWN_NOTICE",
+            dayOffset: cfg.shutdownAfterDays,
+            recipients: recipients.join(","),
+            subject: tpl.subject,
           },
         });
-        if (!already) {
-          const tpl = shutdownEmail(r);
-          await sendMail({ to: recipients, subject: tpl.subject, html: tpl.html });
-          await prisma.alertLog.create({
-            data: {
-              requirementId: r.id,
-              kind: "SHUTDOWN_NOTICE",
-              dayOffset: 7,
-              recipients: recipients.join(","),
-              subject: tpl.subject,
-            },
-          });
-          await prisma.requirement.update({
-            where: { id: r.id },
-            data: { status: "SHUTDOWN" },
-          });
-          await prisma.requirementEvent.create({
-            data: {
-              requirementId: r.id,
-              type: "STATUS_CHANGED",
-              message: "Auto-marked SHUTDOWN after 7 days past expiry",
-            },
-          });
-          summary.shutdown++;
-        } else summary.skipped++;
-      } else if (daysSince > 0 && r.status !== "EXPIRED" && r.status !== "SHUTDOWN") {
-        await prisma.requirement.update({ where: { id: r.id }, data: { status: "EXPIRED" } });
-      }
+        await prisma.requirement.update({
+          where: { id: r.id },
+          data: { status: "SHUTDOWN" },
+        });
+        await prisma.requirementEvent.create({
+          data: {
+            requirementId: r.id,
+            type: "STATUS_CHANGED",
+            message: `Auto-marked SHUTDOWN after ${cfg.shutdownAfterDays} days past expiry`,
+          },
+        });
+        summary.shutdown++;
+      } else summary.skipped++;
+    } else if (delta < 0 && r.status !== "EXPIRED" && r.status !== "SHUTDOWN") {
+      await prisma.requirement.update({ where: { id: r.id }, data: { status: "EXPIRED" } });
     }
   }
   return summary;

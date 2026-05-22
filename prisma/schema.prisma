@@ -215,6 +215,42 @@ model OsVersion {
   createdAt DateTime @default(now())
 }
 
+// Singleton: only one row (id="default") is used at runtime.
+model AlertConfig {
+  id                   String   @id @default("default")
+  enabled              Boolean  @default(true)
+  cronExpression       String   @default("0 9 * * *")
+  preExpiryDays        Int      @default(7) // T-N warning
+  postExpiryReminderDays Int    @default(7) // daily reminders 1..N after expiry
+  shutdownAfterDays    Int      @default(7) // auto-shutdown N days after expiry
+  ccEmails             String[] @default([]) // always CC on alerts
+  notifyInfra          Boolean  @default(true)
+  notifyManager        Boolean  @default(true)
+  notifyRaiser         Boolean  @default(true)
+  updatedAt            DateTime @updatedAt
+}
+
+model OvirtCluster {
+  id            String    @id @default(cuid())
+  name          String
+  baseUrl       String    // e.g. https://ovirt.example.com
+  username      String    // e.g. admin@internal
+  passwordEnc   String    // AES-256-GCM ciphertext (iv:authTag:cipher hex)
+  insecureTls   Boolean   @default(false)
+  enabled       Boolean   @default(true)
+  // Cached capacity (refreshed on demand)
+  cpuCoresTotal      Int?
+  cpuCoresUsed       Int?
+  memoryGBTotal      Int?
+  memoryGBAvailable  Int?
+  storageGBTotal     Int?
+  storageGBAvailable Int?
+  lastSyncedAt  DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
 // --- NextAuth tables ---
 model Account {
   id                String  @id @default(cuid())

@@ -1,22 +1,34 @@
 "use client";
 
 import { useState } from "react";
-import type { User, Module, ManagerOption, OsVersion } from "@prisma/client";
+import type {
+  User,
+  Module,
+  ManagerOption,
+  OsVersion,
+  AlertConfig,
+} from "@prisma/client";
 import { UsersTable } from "./UsersTable";
 import { LookupTable } from "./LookupTable";
+import { AlertConfigForm } from "./AlertConfigForm";
+import { ClustersPanel, type ClusterRow } from "./ClustersPanel";
 
-type Tab = "users" | "modules" | "managers" | "os";
+type Tab = "users" | "modules" | "managers" | "os" | "alerts" | "clusters";
 
 export function AdminTabs({
   users,
   modules,
   managers,
   osVersions,
+  alertConfig,
+  clusters,
 }: {
   users: User[];
   modules: Module[];
   managers: ManagerOption[];
   osVersions: OsVersion[];
+  alertConfig: AlertConfig;
+  clusters: ClusterRow[];
 }) {
   const [tab, setTab] = useState<Tab>("users");
 
@@ -34,6 +46,12 @@ export function AdminTabs({
         </TabBtn>
         <TabBtn active={tab === "os"} onClick={() => setTab("os")}>
           OS versions · {osVersions.length}
+        </TabBtn>
+        <TabBtn active={tab === "alerts"} onClick={() => setTab("alerts")}>
+          Alerts
+        </TabBtn>
+        <TabBtn active={tab === "clusters"} onClick={() => setTab("clusters")}>
+          Clusters · {clusters.length}
         </TabBtn>
       </div>
 
@@ -76,6 +94,10 @@ export function AdminTabs({
           fields={[{ key: "name", label: "Name", required: true }]}
         />
       )}
+
+      {tab === "alerts" && <AlertConfigForm initial={alertConfig} />}
+
+      {tab === "clusters" && <ClustersPanel initial={clusters} />}
     </div>
   );
 }

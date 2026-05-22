@@ -2,13 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Send, Loader2, Plus, Trash2, Sigma } from "lucide-react";
+import { Upload, Send, Loader2, Plus, Trash2, Sigma, AlertTriangle } from "lucide-react";
 import { UTILITY_SERVICES } from "@/lib/constants";
 
 type OptionsBundle = {
   modules: { id: string; name: string }[];
   managers: { id: string; name: string; email: string }[];
   osVersions: { id: string; name: string }[];
+};
+
+type CapacityBundle = {
+  hasData: boolean;
+  totals: {
+    cpuCoresTotal: number;
+    cpuCoresAvailable: number;
+    memoryGBTotal: number;
+    memoryGBAvailable: number;
+    storageGBTotal: number;
+    storageGBAvailable: number;
+  };
 };
 
 type VmRow = {
@@ -46,6 +58,7 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
     managers: [],
     osVersions: [],
   });
+  const [capacity, setCapacity] = useState<CapacityBundle | null>(null);
   const [managerName, setManagerName] = useState("");
   const [managerEmail, setManagerEmail] = useState("");
 
@@ -54,6 +67,10 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
     fetch("/api/options")
       .then((r) => r.json())
       .then((d) => !cancelled && setOptions(d))
+      .catch(() => {});
+    fetch("/api/capacity")
+      .then((r) => r.json())
+      .then((d) => !cancelled && setCapacity(d))
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -411,17 +428,44 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Stat label="VMs" value={totals.vmCount} />
-          <Stat label="Total vCPU" value={`${totals.totalCpu} cores`} hint={`${totals.vmCpu} VM + ${totals.k8sCpu} k8s`} />
-          <Stat label="Total memory" value={`${totals.totalMem} GB`} hint={`${totals.vmMem} VM + ${totals.k8sMem} k8s`} />
+          <Stat
+            label="Total vCPU"
+            value={`${totals.totalCpu} cores`}
+            hint={`${totals.vmCpu} VM + ${totals.k8sCpu} k8s`}
+            warn={
+              capacity?.hasData
+                ? totals.totalCpu > capacity.totals.cpuCoresAvailable
+                : false
+            }
+            available={capacity?.hasData ? `${capacity.totals.cpuCoresAvailable} avail.` : undefined}
+          />
+          <Stat
+            label="Total memory"
+            value={`${totals.totalMem} GB`}
+            hint={`${totals.vmMem} VM + ${totals.k8sMem} k8s`}
+            warn={
+              capacity?.hasData
+                ? totals.totalMem > capacity.totals.memoryGBAvailable
+                : false
+            }
+            available={capacity?.hasData ? `${capacity.totals.memoryGBAvailable} avail.` : undefined}
+          />
           <Stat
             label="Total storage"
             value={`${totals.totalStorage} GB`}
             hint={`${totals.vmDisk} VM + ${totals.k8sStore} k8s + ${totals.shared} shared`}
+            warn={
+              capacity?.hasData
+                ? totals.totalStorage > capacity.totals.storageGBAvailable
+                : false
+            }
+            available={capacity?.hasData ? `${capacity.totals.storageGBAvailable} avail.` : undefined}
           />
           {needsK8s && (
             <Stat label="Utility services" value={totals.utilities} />
           )}
         </div>
+        <CapacityWarning capacity={capacity} totals={totals} />
       </div>
 
       {error && (
@@ -515,16 +559,94 @@ function Stat({
   label,
   value,
   hint,
+  warn,
+  available,
 }: {
   label: string;
   value: string | number;
   hint?: string;
+  warn?: boolean;
+  available?: string;
 }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-surface-2/50 p-3">
-      <div className="text-[10px] uppercase tracking-[0.2em] text-muted">{label}</div>
+    <div
+      className={
+        "rounded-xl border p-3 " +
+        (warn
+          ? "border-warning bg-warning/10"
+          : "border-border/70 bg-surface-2/50")
+      }
+    >
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-muted">{label}</div>
+        {warn && <AlertTriangle size={12} className="text-warning" />}
+      </div>
       <div className="text-xl font-semibold mt-1">{value}</div>
       {hint && <div className="text-[10px] text-muted mt-0.5">{hint}</div>}
+      {available && (
+        <div className={`text-[10px] mt-0.5 ${warn ? "text-warning" : "text-muted"}`}>
+          {available}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CapacityWarning({
+  capacity,
+  totals,
+}: {
+  capacity: CapacityBundle | null;
+  totals: { totalCpu: number; totalMem: number; totalStorage: number };
+}) {
+  if (!capacity?.hasData) {
+    return (
+      <div className="text-[11px] text-muted mt-3">
+        Cluster capacity not synced — capacity check unavailable. Ask an admin to add
+        and refresh an oVirt/RHEV cluster.
+      </div>
+    );
+  }
+  const overs: string[] = [];
+  if (totals.totalCpu > capacity.totals.cpuCoresAvailable) {
+    overs.push(
+      `${totals.totalCpu - capacity.totals.cpuCoresAvailable} core(s) over CPU availability`,
+    );
+  }
+  if (totals.totalMem > capacity.totals.memoryGBAvailable) {
+    overs.push(
+      `${totals.totalMem - capacity.totals.memoryGBAvailable} GB over memory availability`,
+    );
+  }
+  if (totals.totalStorage > capacity.totals.storageGBAvailable) {
+    overs.push(
+      `${totals.totalStorage - capacity.totals.storageGBAvailable} GB over storage availability`,
+    );
+  }
+  if (overs.length === 0) {
+    return (
+      <div className="text-[11px] text-success mt-3">
+        Fits within current cluster capacity.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 flex items-start gap-2 p-3 rounded-lg border border-warning/50 bg-warning/10 text-sm">
+      <AlertTriangle size={16} className="text-warning shrink-0 mt-0.5" />
+      <div>
+        <div className="font-semibold text-warning">
+          Requested capacity exceeds what is currently available.
+        </div>
+        <ul className="list-disc ml-5 mt-1 text-warning/90 text-xs">
+          {overs.map((m) => (
+            <li key={m}>{m}</li>
+          ))}
+        </ul>
+        <div className="text-[11px] text-muted mt-1">
+          You can still submit — the infra team will review and either provision now
+          or queue until capacity is added.
+        </div>
+      </div>
     </div>
   );
 }
