@@ -24,7 +24,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     user.role === "INFRA" ||
     user.role === "ADMIN" ||
     item.raiserId === user.id ||
-    item.managerEmail.toLowerCase() === user.email.toLowerCase();
+    (user.role === "MANAGER" && item.managerEmail.toLowerCase() === user.email.toLowerCase());
   if (!canSee) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   return NextResponse.json({ item });

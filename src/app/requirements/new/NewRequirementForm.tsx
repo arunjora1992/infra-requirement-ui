@@ -21,8 +21,9 @@ type OptionsBundle = {
   osVersions: { id: string; name: string }[];
 };
 
-type CapacityBundle = {
+type CapacityPrivileged = {
   hasData: boolean;
+  isPrivileged: true;
   totals: {
     cpuCoresTotal: number;
     cpuCoresAvailable: number;
@@ -31,12 +32,14 @@ type CapacityBundle = {
     storageGBTotal: number;
     storageGBAvailable: number;
   };
-  clusters: {
-    id: string;
-    name: string;
-    lastSyncedAt: string | null;
-  }[];
+  clusters: { id: string; name: string; lastSyncedAt: string | null }[];
 };
+type CapacityRegular = {
+  hasData: boolean;
+  isPrivileged: false;
+  availability: { cpu: number; memory: number; storage: number };
+};
+type CapacityBundle = CapacityPrivileged | CapacityRegular;
 
 type VmRow = {
   name: string;
@@ -450,34 +453,22 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
             label="Total vCPU"
             value={`${totals.totalCpu} cores`}
             hint={`${totals.vmCpu} VM + ${totals.k8sCpu} k8s`}
-            warn={
-              capacity?.hasData
-                ? totals.totalCpu > capacity.totals.cpuCoresAvailable
-                : false
-            }
-            available={capacity?.hasData ? `${capacity.totals.cpuCoresAvailable} avail.` : undefined}
+            warn={overFor(capacity, "cpu", totals.totalCpu)}
+            available={availableLabel(capacity, "cpu")}
           />
           <Stat
             label="Total memory"
             value={`${totals.totalMem} GB`}
             hint={`${totals.vmMem} VM + ${totals.k8sMem} k8s`}
-            warn={
-              capacity?.hasData
-                ? totals.totalMem > capacity.totals.memoryGBAvailable
-                : false
-            }
-            available={capacity?.hasData ? `${capacity.totals.memoryGBAvailable} avail.` : undefined}
+            warn={overFor(capacity, "memory", totals.totalMem)}
+            available={availableLabel(capacity, "memory")}
           />
           <Stat
             label="Total storage"
             value={`${totals.totalStorage} GB`}
             hint={`${totals.vmDisk} VM + ${totals.k8sStore} k8s + ${totals.shared} shared`}
-            warn={
-              capacity?.hasData
-                ? totals.totalStorage > capacity.totals.storageGBAvailable
-                : false
-            }
-            available={capacity?.hasData ? `${capacity.totals.storageGBAvailable} avail.` : undefined}
+            warn={overFor(capacity, "storage", totals.totalStorage)}
+            available={availableLabel(capacity, "storage")}
           />
           {needsK8s && (
             <Stat label="Utility services" value={totals.utilities} />
@@ -610,6 +601,33 @@ function Stat({
   );
 }
 
+function overFor(
+  capacity: CapacityBundle | null,
+  kind: "cpu" | "memory" | "storage",
+  requested: number,
+): boolean {
+  if (!capacity?.hasData) return false;
+  if (capacity.isPrivileged) {
+    if (kind === "cpu") return requested > capacity.totals.cpuCoresAvailable;
+    if (kind === "memory") return requested > capacity.totals.memoryGBAvailable;
+    return requested > capacity.totals.storageGBAvailable;
+  }
+  if (kind === "cpu") return requested > capacity.availability.cpu;
+  if (kind === "memory") return requested > capacity.availability.memory;
+  return requested > capacity.availability.storage;
+}
+
+function availableLabel(
+  capacity: CapacityBundle | null,
+  kind: "cpu" | "memory" | "storage",
+): string | undefined {
+  if (!capacity?.hasData) return undefined;
+  if (!capacity.isPrivileged) return undefined; // never reveal numbers
+  if (kind === "cpu") return `${capacity.totals.cpuCoresAvailable} avail.`;
+  if (kind === "memory") return `${capacity.totals.memoryGBAvailable} avail.`;
+  return `${capacity.totals.storageGBAvailable} avail.`;
+}
+
 function CapacityBanner({
   capacity,
   totals,
@@ -617,30 +635,65 @@ function CapacityBanner({
   capacity: CapacityBundle | null;
   totals: { totalCpu: number; totalMem: number; totalStorage: number };
 }) {
-  if (!capacity)
+  if (!capacity) {
     return (
       <div className="card p-4 text-sm text-muted flex items-center gap-2">
-        <Loader2 size={14} className="animate-spin" /> Loading cluster capacity…
+        <Loader2 size={14} className="animate-spin" /> Checking cluster capacity…
       </div>
     );
+  }
   if (!capacity.hasData) {
     return (
       <div className="card p-4 text-sm flex items-start gap-2">
         <Info size={16} className="text-muted shrink-0 mt-0.5" />
         <div>
-          <div className="font-medium">No cluster capacity synced yet.</div>
+          <div className="font-medium">Cluster capacity not synced yet.</div>
           <div className="text-muted text-xs mt-0.5">
-            Ask an admin to add an oVirt/RHEV cluster in Admin → Clusters and
-            click "Refresh". The system also pulls capacity automatically every hour.
+            Capacity checks will appear once an admin syncs an oVirt/RHEV cluster.
           </div>
         </div>
       </div>
     );
   }
-  const cpuOver = totals.totalCpu > capacity.totals.cpuCoresAvailable;
-  const memOver = totals.totalMem > capacity.totals.memoryGBAvailable;
-  const stoOver = totals.totalStorage > capacity.totals.storageGBAvailable;
+
+  const cpuOver = overFor(capacity, "cpu", totals.totalCpu);
+  const memOver = overFor(capacity, "memory", totals.totalMem);
+  const stoOver = overFor(capacity, "storage", totals.totalStorage);
   const anyOver = cpuOver || memOver || stoOver;
+
+  // Non-privileged users: never show available/total numbers, only a warning.
+  if (!capacity.isPrivileged) {
+    if (!anyOver) {
+      return (
+        <div className="card p-3 text-xs text-success/90 flex items-center gap-2 border-success/40">
+          <Activity size={14} /> Your request fits within current cluster capacity.
+        </div>
+      );
+    }
+    const overKinds = [
+      cpuOver && "CPU",
+      memOver && "memory",
+      stoOver && "storage",
+    ].filter(Boolean);
+    return (
+      <div className="card p-4 border-warning/60 bg-warning/10 flex items-start gap-2">
+        <AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" />
+        <div>
+          <div className="font-semibold text-warning">
+            Insufficient cluster capacity for this requirement.
+          </div>
+          <div className="text-sm text-fg/90 mt-0.5">
+            The requested {overKinds.join(", ")} exceeds what is currently
+            available across the infrastructure. You can still submit — the
+            infra team will review and either provision now or queue until
+            capacity is added.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Privileged (INFRA/ADMIN) view: full capacity breakdown with numbers.
   const lastSync = capacity.clusters
     .map((c) => c.lastSyncedAt)
     .filter(Boolean)
@@ -654,7 +707,7 @@ function CapacityBanner({
         <div className="flex items-center gap-2">
           <Activity size={16} className={anyOver ? "text-warning" : "text-success"} />
           <div className="text-[11px] uppercase tracking-[0.2em] text-muted">
-            Cluster availability (live)
+            Cluster availability (live · infra view)
           </div>
         </div>
         <div className="text-[11px] text-muted">
@@ -689,9 +742,8 @@ function CapacityBanner({
       <div className="text-[11px] text-muted mt-3 flex items-start gap-1">
         <Info size={12} className="mt-0.5 shrink-0" />
         <span>
-          CPU "available" is based on current host utilization across all UP hosts —
-          requirements may still fit due to overcommit. Memory and storage are
-          reservation-based.
+          CPU + memory are reservation-based (sum of running VM allocations).
+          Storage uses storage-domain available bytes. Refreshes every hour.
         </span>
       </div>
     </div>
@@ -747,37 +799,37 @@ function CapacityWarning({
   capacity: CapacityBundle | null;
   totals: { totalCpu: number; totalMem: number; totalStorage: number };
 }) {
-  if (!capacity?.hasData) {
+  if (!capacity?.hasData) return null;
+  const cpuOver = overFor(capacity, "cpu", totals.totalCpu);
+  const memOver = overFor(capacity, "memory", totals.totalMem);
+  const stoOver = overFor(capacity, "storage", totals.totalStorage);
+  if (!cpuOver && !memOver && !stoOver) return null;
+
+  // Privileged users see exact "over by N" in the banner above.
+  // Regular users only see a generic warning here.
+  if (!capacity.isPrivileged) {
     return (
-      <div className="text-[11px] text-muted mt-3">
-        Cluster capacity not synced — capacity check unavailable. Ask an admin to add
-        and refresh an oVirt/RHEV cluster.
+      <div className="mt-3 flex items-start gap-2 p-3 rounded-lg border border-warning/50 bg-warning/10 text-sm">
+        <AlertTriangle size={16} className="text-warning shrink-0 mt-0.5" />
+        <div>
+          <div className="font-semibold text-warning">
+            Insufficient capacity for this requirement.
+          </div>
+          <div className="text-[11px] text-muted mt-1">
+            Submit anyway — the infra team will review.
+          </div>
+        </div>
       </div>
     );
   }
+
   const overs: string[] = [];
-  if (totals.totalCpu > capacity.totals.cpuCoresAvailable) {
-    overs.push(
-      `${totals.totalCpu - capacity.totals.cpuCoresAvailable} core(s) over CPU availability`,
-    );
-  }
-  if (totals.totalMem > capacity.totals.memoryGBAvailable) {
-    overs.push(
-      `${totals.totalMem - capacity.totals.memoryGBAvailable} GB over memory availability`,
-    );
-  }
-  if (totals.totalStorage > capacity.totals.storageGBAvailable) {
-    overs.push(
-      `${totals.totalStorage - capacity.totals.storageGBAvailable} GB over storage availability`,
-    );
-  }
-  if (overs.length === 0) {
-    return (
-      <div className="text-[11px] text-success mt-3">
-        Fits within current cluster capacity.
-      </div>
-    );
-  }
+  if (cpuOver)
+    overs.push(`${totals.totalCpu - capacity.totals.cpuCoresAvailable} core(s) over CPU`);
+  if (memOver)
+    overs.push(`${totals.totalMem - capacity.totals.memoryGBAvailable} GB over memory`);
+  if (stoOver)
+    overs.push(`${totals.totalStorage - capacity.totals.storageGBAvailable} GB over storage`);
   return (
     <div className="mt-3 flex items-start gap-2 p-3 rounded-lg border border-warning/50 bg-warning/10 text-sm">
       <AlertTriangle size={16} className="text-warning shrink-0 mt-0.5" />
@@ -790,10 +842,6 @@ function CapacityWarning({
             <li key={m}>{m}</li>
           ))}
         </ul>
-        <div className="text-[11px] text-muted mt-1">
-          You can still submit — the infra team will review and either provision now
-          or queue until capacity is added.
-        </div>
       </div>
     </div>
   );

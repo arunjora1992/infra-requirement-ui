@@ -18,7 +18,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     user.role === "INFRA" ||
     user.role === "ADMIN" ||
     att.requirement.raiserId === user.id ||
-    att.requirement.managerEmail.toLowerCase() === user.email.toLowerCase();
+    (user.role === "MANAGER" &&
+      att.requirement.managerEmail.toLowerCase() === user.email.toLowerCase());
   if (!canSee) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const buf = await fs.readFile(uploadPath(att.storedName));

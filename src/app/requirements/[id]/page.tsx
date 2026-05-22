@@ -33,7 +33,7 @@ export default async function RequirementDetail({
     user.role === "INFRA" ||
     user.role === "ADMIN" ||
     r.raiserId === user.id ||
-    r.managerEmail.toLowerCase() === user.email.toLowerCase();
+    (user.role === "MANAGER" && r.managerEmail.toLowerCase() === user.email.toLowerCase());
   if (!canSee) return <div className="card p-8">Forbidden</div>;
 
   const isInfra = user.role === "INFRA" || user.role === "ADMIN";

@@ -13,13 +13,17 @@ export async function GET(req: Request) {
   const status = searchParams.get("status") ?? undefined;
   const projectName = searchParams.get("projectName") ?? undefined;
   const q = searchParams.get("q") ?? undefined;
-  const scope = searchParams.get("scope") ?? "auto"; // auto | mine | all
+  const scopeParam = searchParams.get("scope");
 
-  const where: any = {};
-  if (status) where.status = status as any;
-  if (projectName) where.projectName = projectName;
+  const role = user.role;
+  const canSeeAll = role === "INFRA" || role === "ADMIN";
+  const canSeeManaged = canSeeAll || role === "MANAGER";
+
+  const filters: any = {};
+  if (status) filters.status = status as any;
+  if (projectName) filters.projectName = projectName;
   if (q) {
-    where.OR = [
+    filters.OR = [
       { title: { contains: q, mode: "insensitive" } },
       { description: { contains: q, mode: "insensitive" } },
       { projectName: { contains: q, mode: "insensitive" } },
@@ -27,14 +31,20 @@ export async function GET(req: Request) {
     ];
   }
 
-  const canSeeAll = user.role === "INFRA" || user.role === "ADMIN";
-  if (scope === "mine" || (!canSeeAll && scope !== "all")) {
-    where.OR = [
-      ...(where.OR ?? []),
-      { raiserId: user.id },
-      { managerEmail: user.email },
-    ];
+  // Effective scope rules:
+  //   USER → always raiser=self
+  //   MANAGER → raiser=self OR managerEmail=self
+  //   INFRA/ADMIN → all by default, ?scope=mine narrows to raiser/manager
+  let scopeFilter: any = null;
+  if (role === "USER") {
+    scopeFilter = { raiserId: user.id };
+  } else if (role === "MANAGER") {
+    scopeFilter = { OR: [{ raiserId: user.id }, { managerEmail: user.email }] };
+  } else if (canSeeAll && scopeParam === "mine") {
+    scopeFilter = { OR: [{ raiserId: user.id }, { managerEmail: user.email }] };
   }
+
+  const where = scopeFilter ? { AND: [filters, scopeFilter] } : filters;
 
   const items = await prisma.requirement.findMany({
     where,
@@ -46,7 +56,7 @@ export async function GET(req: Request) {
     },
     take: 500,
   });
-  return NextResponse.json({ items });
+  return NextResponse.json({ items, _meta: { canSeeAll, canSeeManaged } });
 }
 
 export async function POST(req: Request) {
@@ -111,6 +121,5 @@ export async function POST(req: Request) {
   });
 
   notifyInfraOfNew(created).catch((e) => console.error("notifyInfraOfNew", e));
-
   return NextResponse.json({ item: created }, { status: 201 });
 }

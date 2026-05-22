@@ -16,28 +16,38 @@ export default async function Dashboard({ searchParams }: Props) {
   if (!user) redirect("/login?callbackUrl=/dashboard");
 
   const canSeeAll = user.role === "INFRA" || user.role === "ADMIN";
+  const isManager = user.role === "MANAGER";
   const scope = searchParams.scope ?? (canSeeAll ? "all" : "mine");
 
-  const where: any = {};
-  if (searchParams.status) where.status = searchParams.status;
+  const filters: any = {};
+  if (searchParams.status) filters.status = searchParams.status;
   if (searchParams.q) {
-    where.OR = [
+    filters.OR = [
       { title: { contains: searchParams.q, mode: "insensitive" } },
       { projectName: { contains: searchParams.q, mode: "insensitive" } },
       { managerName: { contains: searchParams.q, mode: "insensitive" } },
     ];
   }
-  if (scope === "mine") {
-    where.AND = [
-      ...(where.AND ?? []),
-      { OR: [{ raiserId: user.id }, { managerEmail: user.email }] },
-    ];
+
+  // Enforce role-based visibility regardless of ?scope=
+  let scopeFilter: any = null;
+  if (user.role === "USER") {
+    scopeFilter = { raiserId: user.id };
+  } else if (isManager) {
+    scopeFilter = { OR: [{ raiserId: user.id }, { managerEmail: user.email }] };
+  } else if (canSeeAll && scope === "mine") {
+    scopeFilter = { OR: [{ raiserId: user.id }, { managerEmail: user.email }] };
   }
+  const where = scopeFilter ? { AND: [filters, scopeFilter] } : filters;
 
   // Grand totals consider only active (not REJECTED / SHUTDOWN) requirements
-  const liveWhere = canSeeAll
-    ? { status: { notIn: ["REJECTED", "SHUTDOWN"] as any[] } }
-    : { ...where, status: { notIn: ["REJECTED", "SHUTDOWN"] as any[] } };
+  // Scoped to what the user can see.
+  const liveWhere: any = {
+    AND: [
+      where,
+      { status: { notIn: ["REJECTED", "SHUTDOWN"] as any[] } },
+    ],
+  };
 
   const [items, counts, vmAgg, nsAgg, sharedAgg, vmCountAgg] = await Promise.all([
     prisma.requirement.findMany({
@@ -103,7 +113,9 @@ export default async function Dashboard({ searchParams }: Props) {
           <p className="text-muted text-sm">
             {canSeeAll
               ? "All projects' infrastructure requirements."
-              : "Requirements you raised or manage."}
+              : isManager
+              ? "Requirements you raised or manage."
+              : "Requirements you raised."}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -149,32 +161,34 @@ export default async function Dashboard({ searchParams }: Props) {
         />
       </div>
 
-      <div className="card p-5 border-accent/40 shadow-glow-sm">
-        <div className="flex items-center gap-2 mb-3">
-          <Sigma size={16} className="text-accent" />
-          <div className="text-[11px] uppercase tracking-[0.2em] text-muted">
-            Overall infrastructure committed (active requirements)
+      {canSeeAll && (
+        <div className="card p-5 border-accent/40 shadow-glow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Sigma size={16} className="text-accent" />
+            <div className="text-[11px] uppercase tracking-[0.2em] text-muted">
+              Overall infrastructure committed (active requirements)
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Totl label="Total VMs" value={grand.vms} />
+            <Totl
+              label="Total vCPU"
+              value={`${grand.cpu} cores`}
+              hint={`${grand.vmCpu} VM + ${grand.nsCpu} k8s`}
+            />
+            <Totl
+              label="Total memory"
+              value={`${grand.mem} GB`}
+              hint={`${grand.vmMem} VM + ${grand.nsMem} k8s`}
+            />
+            <Totl
+              label="Total storage"
+              value={`${grand.storage} GB`}
+              hint={`${grand.vmDisk} VM + ${grand.nsStore} k8s + ${grand.shared} shared`}
+            />
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Totl label="Total VMs" value={grand.vms} />
-          <Totl
-            label="Total vCPU"
-            value={`${grand.cpu} cores`}
-            hint={`${grand.vmCpu} VM + ${grand.nsCpu} k8s`}
-          />
-          <Totl
-            label="Total memory"
-            value={`${grand.mem} GB`}
-            hint={`${grand.vmMem} VM + ${grand.nsMem} k8s`}
-          />
-          <Totl
-            label="Total storage"
-            value={`${grand.storage} GB`}
-            hint={`${grand.vmDisk} VM + ${grand.nsStore} k8s + ${grand.shared} shared`}
-          />
-        </div>
-      </div>
+      )}
 
       <FilterBar canSeeAll={canSeeAll} />
 

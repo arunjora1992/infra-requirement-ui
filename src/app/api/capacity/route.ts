@@ -5,7 +5,9 @@ import { requireUser } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  await requireUser();
+  const user = await requireUser();
+  const isPrivileged = user.role === "INFRA" || user.role === "ADMIN";
+
   const clusters = await prisma.ovirtCluster.findMany({
     where: { enabled: true },
     select: {
@@ -42,5 +44,27 @@ export async function GET() {
   );
 
   const hasData = clusters.some((c) => c.lastSyncedAt);
-  return NextResponse.json({ clusters, totals, hasData });
+
+  if (!isPrivileged) {
+    // Regular users get only the over-capacity thresholds, not the raw numbers.
+    // We need *something* for the UI to compute "over" — return only the
+    // availability ceilings, no totals/used breakdowns, no cluster names.
+    return NextResponse.json({
+      hasData,
+      isPrivileged: false,
+      // exposed: availability ceilings (used as boolean threshold)
+      availability: {
+        cpu: totals.cpuCoresAvailable,
+        memory: totals.memoryGBAvailable,
+        storage: totals.storageGBAvailable,
+      },
+    });
+  }
+
+  return NextResponse.json({
+    hasData,
+    isPrivileged: true,
+    clusters,
+    totals,
+  });
 }

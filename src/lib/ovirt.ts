@@ -108,16 +108,16 @@ export async function testConnection(cluster: OvirtCluster): Promise<{ ok: true;
 }
 
 export async function fetchCapacity(cluster: OvirtCluster): Promise<OvirtCapacity> {
-  // Hosts give us CPU cores + memory totals; statistics give used cpu/memory.
-  // /hosts?follow=statistics returns the statistics inline.
-  const hosts = await ovirtGet<any>(cluster, "hosts?follow=statistics");
+  // Reservation-based capacity:
+  //  - Total CPU / memory: sum of UP host capacity
+  //  - Reserved CPU / memory: sum of allocations across non-down VMs
+  //  - Available = total - reserved
+  //  - Storage available comes from storage domain "available" directly
+  const hosts = await ovirtGet<any>(cluster, "hosts");
   const hostList: any[] = Array.isArray(hosts?.host) ? hosts.host : [];
 
   let cpuCoresTotal = 0;
-  let cpuCoresUsedFraction = 0; // sum of (cores * usagePercent/100)
   let memTotalBytes = 0;
-  let memUsedBytes = 0;
-
   for (const h of hostList) {
     if (h.status && h.status !== "up") continue;
     const cores =
@@ -126,17 +126,22 @@ export async function fetchCapacity(cluster: OvirtCluster): Promise<OvirtCapacit
       Math.max(1, toInt(h.cpu?.topology?.threads));
     cpuCoresTotal += cores;
     memTotalBytes += toInt(h.memory);
+  }
 
-    // statistics: array of { name, values: { value: [{ datum }] } }
-    const stats: any[] = Array.isArray(h.statistics?.statistic)
-      ? h.statistics.statistic
-      : [];
-    const statVal = (n: string) =>
-      toInt(stats.find((s) => s.name === n)?.values?.value?.[0]?.datum);
-    const cpuPct = statVal("cpu.current.user") + statVal("cpu.current.system");
-    cpuCoresUsedFraction += (cpuPct / 100) * cores;
-    const memUsed = statVal("memory.used");
-    if (memUsed > 0) memUsedBytes += memUsed;
+  // Sum VM allocations. A "down" VM does not consume host CPU/RAM.
+  const vms = await ovirtGet<any>(cluster, "vms");
+  const vmList: any[] = Array.isArray(vms?.vm) ? vms.vm : [];
+
+  let cpuCoresReserved = 0;
+  let memReservedBytes = 0;
+  for (const v of vmList) {
+    if ((v.status ?? "").toLowerCase() === "down") continue;
+    const cores =
+      toInt(v.cpu?.topology?.cores) *
+      toInt(v.cpu?.topology?.sockets) *
+      Math.max(1, toInt(v.cpu?.topology?.threads));
+    cpuCoresReserved += cores;
+    memReservedBytes += toInt(v.memory);
   }
 
   // Storage
@@ -147,18 +152,17 @@ export async function fetchCapacity(cluster: OvirtCluster): Promise<OvirtCapacit
   for (const s of sds) {
     const used = toInt(s.used);
     const available = toInt(s.available);
-    // 'committed' is reserved-by-VMs; we don't subtract from available here.
     storTotalBytes += used + available;
     storAvailBytes += available;
   }
 
   return {
     cpuCoresTotal,
-    cpuCoresUsed: Math.round(cpuCoresUsedFraction),
+    cpuCoresUsed: cpuCoresReserved,
     memoryGBTotal: Math.round(memTotalBytes / GB),
     memoryGBAvailable: Math.max(
       0,
-      Math.round((memTotalBytes - memUsedBytes) / GB),
+      Math.round((memTotalBytes - memReservedBytes) / GB),
     ),
     storageGBTotal: Math.round(storTotalBytes / GB),
     storageGBAvailable: Math.round(storAvailBytes / GB),
