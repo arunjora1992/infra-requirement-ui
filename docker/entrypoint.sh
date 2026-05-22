@@ -22,10 +22,11 @@ const tryOnce = () => new Promise((res) => {
 "
 
 echo "[entrypoint] syncing schema..."
+PRISMA_BIN="/app/node_modules/prisma/build/index.js"
 if [ -d "prisma/migrations" ] && [ "$(ls -A prisma/migrations 2>/dev/null)" ]; then
-  npx prisma migrate deploy
+  node "$PRISMA_BIN" migrate deploy
 else
-  npx prisma db push --skip-generate --accept-data-loss
+  node "$PRISMA_BIN" db push --skip-generate --accept-data-loss
 fi
 
 echo "[entrypoint] starting app..."
