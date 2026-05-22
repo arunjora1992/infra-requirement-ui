@@ -6,7 +6,8 @@ WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY package.json package-lock.json* .npmrc* ./
 COPY prisma ./prisma
-RUN npm install --no-audit --no-fund --legacy-peer-deps
+ENV PRISMA_SKIP_POSTINSTALL_GENERATE=true
+RUN npm install --no-audit --no-fund --legacy-peer-deps --prefer-offline --fetch-retries=5 --fetch-timeout=600000
 
 # --- builder ---
 FROM node:20-alpine AS builder
