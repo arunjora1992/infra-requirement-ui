@@ -6,9 +6,21 @@ import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
+function normalizeBaseUrl(url: string): string {
+  let u = url.trim().replace(/\/+$/, "");
+  // Allow users to paste full API URLs — strip the trailing path
+  u = u.replace(/\/ovirt-engine\/api\/?$/i, "");
+  u = u.replace(/\/ovirt-engine\/?$/i, "");
+  u = u.replace(/\/api\/?$/i, "");
+  return u;
+}
+
 const CreateSchema = z.object({
   name: z.string().min(1).max(120),
-  baseUrl: z.string().url(),
+  baseUrl: z
+    .string()
+    .url()
+    .transform(normalizeBaseUrl),
   username: z.string().min(1).max(160),
   password: z.string().min(1).max(512),
   insecureTls: z.boolean().default(false),

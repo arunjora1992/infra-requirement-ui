@@ -6,9 +6,17 @@ import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
+function normalizeBaseUrl(url: string): string {
+  let u = url.trim().replace(/\/+$/, "");
+  u = u.replace(/\/ovirt-engine\/api\/?$/i, "");
+  u = u.replace(/\/ovirt-engine\/?$/i, "");
+  u = u.replace(/\/api\/?$/i, "");
+  return u;
+}
+
 const PatchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
-  baseUrl: z.string().url().optional(),
+  baseUrl: z.string().url().transform(normalizeBaseUrl).optional(),
   username: z.string().min(1).max(160).optional(),
   password: z.string().min(1).max(512).optional(),
   insecureTls: z.boolean().optional(),

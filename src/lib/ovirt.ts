@@ -47,7 +47,26 @@ async function ovirtGet<T = any>(cluster: OvirtCluster, path: string): Promise<T
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    const looksHtml = body.trimStart().toLowerCase().startsWith("<!doctype") ||
+      body.trimStart().toLowerCase().startsWith("<html");
+    if (looksHtml && res.status === 404) {
+      throw new Error(
+        `oVirt 404 at ${url} — base URL looks wrong. Set it to just the engine host (e.g. https://ovirt.example.com), without /ovirt-engine or /api.`,
+      );
+    }
+    if (looksHtml && (res.status === 401 || res.status === 403)) {
+      throw new Error(
+        `oVirt returned the login HTML page (HTTP ${res.status}) — Basic auth may be disabled. Check the user has 'API' permission and that the username includes the auth profile, e.g. admin@internal or user@ovirt@internal.`,
+      );
+    }
     throw new Error(`oVirt ${res.status} ${res.statusText} – ${body.slice(0, 240)}`);
+  }
+  const ctype = res.headers.get("content-type") || "";
+  if (!ctype.toLowerCase().includes("json")) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `oVirt returned non-JSON (${ctype || "no content-type"}). First 200 chars: ${body.slice(0, 200)}`,
+    );
   }
   return (await res.json()) as T;
 }
