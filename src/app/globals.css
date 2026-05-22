@@ -35,11 +35,23 @@
 }
 
 html, body { height: 100%; }
+html { color-scheme: light dark; }
 body {
   background: rgb(var(--bg));
   color: rgb(var(--fg));
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+}
+::selection {
+  background: rgb(var(--accent) / 0.35);
+  color: rgb(var(--fg));
+}
+*:focus-visible {
+  outline: 2px solid rgb(var(--accent) / 0.65);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 /* Subtle futuristic background grid */
@@ -161,4 +173,21 @@ body {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: shimmer 6s linear infinite;
+  letter-spacing: -0.01em;
 }
+
+/* Page-level heading polish */
+h1, h2, h3 { letter-spacing: -0.02em; }
+
+/* Subtle row separators in tables */
+.table tr:last-child td { border-bottom: none; }
+
+/* Scrollbar (WebKit) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border: 2px solid rgb(var(--bg));
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--accent) / 0.55); }
+::-webkit-scrollbar-track { background: transparent; }
