@@ -2,7 +2,7 @@ import { currentUser } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import Link from "next/link";
-import { Plus, Download, AlertTriangle, Clock, CheckCircle2, Server, FileText } from "lucide-react";
+import { Plus, Download, AlertTriangle, Clock, CheckCircle2, Server, FileText, Sigma } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtDate } from "@/lib/utils";
 import { FilterBar } from "./FilterBar";
@@ -34,7 +34,12 @@ export default async function Dashboard({ searchParams }: Props) {
     ];
   }
 
-  const [items, counts] = await Promise.all([
+  // Grand totals consider only active (not REJECTED / SHUTDOWN) requirements
+  const liveWhere = canSeeAll
+    ? { status: { notIn: ["REJECTED", "SHUTDOWN"] as any[] } }
+    : { ...where, status: { notIn: ["REJECTED", "SHUTDOWN"] as any[] } };
+
+  const [items, counts, vmAgg, nsAgg, sharedAgg, vmCountAgg] = await Promise.all([
     prisma.requirement.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -45,7 +50,40 @@ export default async function Dashboard({ searchParams }: Props) {
       by: ["status"],
       _count: { _all: true },
     }),
+    prisma.vmSpec.aggregate({
+      _sum: { cpu: true, memoryGB: true, storageGB: true },
+      where: { requirement: liveWhere as any },
+    }),
+    prisma.requirement.aggregate({
+      _sum: { nsQuotaCpu: true, nsQuotaMemoryGB: true, nsQuotaStorageGB: true },
+      where: { ...(liveWhere as any), needsK8s: true },
+    }),
+    prisma.requirement.aggregate({
+      _sum: { storageGB: true },
+      where: liveWhere as any,
+    }),
+    prisma.requirement.aggregate({
+      _sum: { vmCount: true },
+      where: liveWhere as any,
+    }),
   ]);
+
+  const grand = {
+    vms: vmCountAgg._sum.vmCount ?? 0,
+    cpu: (vmAgg._sum.cpu ?? 0) + (nsAgg._sum.nsQuotaCpu ?? 0),
+    mem: (vmAgg._sum.memoryGB ?? 0) + (nsAgg._sum.nsQuotaMemoryGB ?? 0),
+    storage:
+      (vmAgg._sum.storageGB ?? 0) +
+      (nsAgg._sum.nsQuotaStorageGB ?? 0) +
+      (sharedAgg._sum.storageGB ?? 0),
+    vmCpu: vmAgg._sum.cpu ?? 0,
+    vmMem: vmAgg._sum.memoryGB ?? 0,
+    vmDisk: vmAgg._sum.storageGB ?? 0,
+    nsCpu: nsAgg._sum.nsQuotaCpu ?? 0,
+    nsMem: nsAgg._sum.nsQuotaMemoryGB ?? 0,
+    nsStore: nsAgg._sum.nsQuotaStorageGB ?? 0,
+    shared: sharedAgg._sum.storageGB ?? 0,
+  };
 
   const statTotals = Object.fromEntries(counts.map((c) => [c.status, c._count._all]));
   const total = counts.reduce((a, c) => a + c._count._all, 0);
@@ -111,6 +149,33 @@ export default async function Dashboard({ searchParams }: Props) {
         />
       </div>
 
+      <div className="card p-5 border-accent/40 shadow-glow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <Sigma size={16} className="text-accent" />
+          <div className="text-[11px] uppercase tracking-[0.2em] text-muted">
+            Overall infrastructure committed (active requirements)
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Totl label="Total VMs" value={grand.vms} />
+          <Totl
+            label="Total vCPU"
+            value={`${grand.cpu} cores`}
+            hint={`${grand.vmCpu} VM + ${grand.nsCpu} k8s`}
+          />
+          <Totl
+            label="Total memory"
+            value={`${grand.mem} GB`}
+            hint={`${grand.vmMem} VM + ${grand.nsMem} k8s`}
+          />
+          <Totl
+            label="Total storage"
+            value={`${grand.storage} GB`}
+            hint={`${grand.vmDisk} VM + ${grand.nsStore} k8s + ${grand.shared} shared`}
+          />
+        </div>
+      </div>
+
       <FilterBar canSeeAll={canSeeAll} />
 
       <div className="card overflow-hidden">
@@ -160,6 +225,24 @@ export default async function Dashboard({ searchParams }: Props) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function Totl({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-surface-2/50 p-3">
+      <div className="text-[10px] uppercase tracking-[0.2em] text-muted">{label}</div>
+      <div className="text-xl font-semibold mt-1">{value}</div>
+      {hint && <div className="text-[10px] text-muted mt-0.5">{hint}</div>}
     </div>
   );
 }

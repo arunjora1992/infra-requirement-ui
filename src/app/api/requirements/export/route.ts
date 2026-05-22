@@ -48,6 +48,7 @@ export async function GET(req: Request) {
       id: r.id,
       title: r.title,
       projectName: r.projectName,
+      moduleName: r.moduleName,
       environment: r.environment,
       priority: r.priority,
       status: r.status,

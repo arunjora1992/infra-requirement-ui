@@ -1,9 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Send, Loader2, Plus, Trash2, Sigma } from "lucide-react";
 import { UTILITY_SERVICES } from "@/lib/constants";
+
+type OptionsBundle = {
+  modules: { id: string; name: string }[];
+  managers: { id: string; name: string; email: string }[];
+  osVersions: { id: string; name: string }[];
+};
 
 type VmRow = {
   name: string;
@@ -35,6 +41,32 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
   const [nsMem, setNsMem] = useState("");
   const [nsStore, setNsStore] = useState("");
   const [sharedStore, setSharedStore] = useState("");
+  const [options, setOptions] = useState<OptionsBundle>({
+    modules: [],
+    managers: [],
+    osVersions: [],
+  });
+  const [managerName, setManagerName] = useState("");
+  const [managerEmail, setManagerEmail] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/options")
+      .then((r) => r.json())
+      .then((d) => !cancelled && setOptions(d))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function pickManager(email: string) {
+    const m = options.managers.find((x) => x.email === email);
+    if (m) {
+      setManagerEmail(m.email);
+      setManagerName(m.name);
+    }
+  }
 
   const totals = useMemo(() => {
     const sumVmCpu = vms.reduce((a, v) => a + (Number(v.cpu) || 0), 0);
@@ -142,9 +174,32 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
+      <datalist id="os-options">
+        {options.osVersions.map((o) => (
+          <option key={o.id} value={o.name} />
+        ))}
+      </datalist>
       <Section title="Requirement" required>
         <Field label="Title *" name="title" required placeholder="e.g. Billing service cluster" />
         <Field label="Project name *" name="projectName" required defaultValue={defaultProject} />
+        <label>
+          <span className="label">Module name</span>
+          <input
+            list="module-options"
+            name="moduleName"
+            className="field"
+            placeholder={
+              options.modules.length === 0
+                ? "Ask admin to add modules"
+                : "Choose or type"
+            }
+          />
+          <datalist id="module-options">
+            {options.modules.map((m) => (
+              <option key={m.id} value={m.name} />
+            ))}
+          </datalist>
+        </label>
         <Select label="Environment *" name="environment" required options={["DEV", "STAGING", "PROD", "DR"]} defaultValue="DEV" />
         <Select label="Priority" name="priority" options={["LOW", "MEDIUM", "HIGH", "CRITICAL"]} defaultValue="MEDIUM" />
         <TextArea label="Description" name="description" className="md:col-span-2" placeholder="What is this for?" />
@@ -178,7 +233,13 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
               <div className="flex gap-2 items-end">
                 <label className="flex-1">
                   <span className="label">OS image</span>
-                  <input className="field" value={v.osImage} onChange={(e) => updateVm(i, { osImage: e.target.value })} placeholder="Rocky 9" />
+                  <input
+                    list="os-options"
+                    className="field"
+                    value={v.osImage}
+                    onChange={(e) => updateVm(i, { osImage: e.target.value })}
+                    placeholder={options.osVersions.length === 0 ? "type / pick" : "pick or type"}
+                  />
                 </label>
                 {vms.length > 1 && (
                   <button type="button" className="btn btn-ghost btn-danger" onClick={() => removeVm(i)} title="Remove VM">
@@ -285,8 +346,37 @@ export function NewRequirementForm({ defaultProject }: { defaultProject: string 
         <Field label="Start date" name="startDate" type="date" />
         <Field label="Tenure (days) *" name="tenureDays" type="number" min={1} defaultValue={90} required />
         <Field label="Cost center" name="costCenter" placeholder="CC-1234" />
-        <Field label="Manager name *" name="managerName" required />
-        <Field label="Manager email *" name="managerEmail" type="email" required placeholder="manager@company.com" />
+        <label className="md:col-span-2">
+          <span className="label">Choose manager from list</span>
+          <select
+            className="field"
+            value={managerEmail}
+            onChange={(e) => pickManager(e.target.value)}
+          >
+            <option value="">— select —</option>
+            {options.managers.map((m) => (
+              <option key={m.id} value={m.email}>
+                {m.name} &lt;{m.email}&gt;
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field
+          label="Manager name *"
+          name="managerName"
+          required
+          value={managerName}
+          onChange={(e) => setManagerName(e.target.value)}
+        />
+        <Field
+          label="Manager email *"
+          name="managerEmail"
+          type="email"
+          required
+          placeholder="manager@company.com"
+          value={managerEmail}
+          onChange={(e) => setManagerEmail(e.target.value)}
+        />
       </Section>
 
       <Section title="Bill of Quantities (BoQ)">

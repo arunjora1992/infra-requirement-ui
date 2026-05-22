@@ -1,7 +1,7 @@
 import { currentUser } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { UsersTable } from "./UsersTable";
+import { AdminTabs } from "./AdminTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +10,22 @@ export default async function AdminPage() {
   if (!u) redirect("/login?callbackUrl=/admin");
   if (u.role !== "ADMIN") return <div className="card p-8">Forbidden — admin only.</div>;
 
-  const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" } });
+  const [users, modules, managers, osVersions] = await Promise.all([
+    prisma.user.findMany({ orderBy: { createdAt: "desc" } }),
+    prisma.module.findMany({ orderBy: { createdAt: "desc" } }),
+    prisma.managerOption.findMany({ orderBy: { createdAt: "desc" } }),
+    prisma.osVersion.findMany({ orderBy: { createdAt: "desc" } }),
+  ]);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Admin</h1>
-        <p className="text-muted text-sm">Manage user roles and teams.</p>
+        <p className="text-muted text-sm">
+          Manage users, modules, managers and OS versions used across requirements.
+        </p>
       </div>
-      <UsersTable users={users} />
+      <AdminTabs users={users} modules={modules} managers={managers} osVersions={osVersions} />
     </div>
   );
 }

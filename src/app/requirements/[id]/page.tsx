@@ -62,7 +62,8 @@ export default async function RequirementDetail({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.2em] text-muted">
-              {r.projectName} · {r.environment} · {r.priority}
+              {r.projectName}
+              {r.moduleName ? ` · ${r.moduleName}` : ""} · {r.environment} · {r.priority}
             </div>
             <h1 className="text-2xl font-semibold mt-1">{r.title}</h1>
             <div className="text-sm text-muted mt-1">

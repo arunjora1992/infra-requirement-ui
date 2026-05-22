@@ -131,7 +131,7 @@ function renderOne(doc: PDFKit.PDFDocument, r: Full) {
     .fontSize(9)
     .font("Helvetica")
     .text(
-      `${r.projectName} · ${r.environment} · ${r.priority} · ${r.status} · raised by ${r.raiser.email} on ${fmtDate(r.raisedAt)}`,
+      `${r.projectName}${r.moduleName ? ` · ${r.moduleName}` : ""} · ${r.environment} · ${r.priority} · ${r.status} · raised by ${r.raiser.email} on ${fmtDate(r.raisedAt)}`,
     );
 
   sectionTitle(doc, "Description");

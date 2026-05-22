@@ -65,6 +65,7 @@ export async function POST(req: Request) {
       title: data.title,
       description: data.description,
       projectName: data.projectName,
+      moduleName: data.moduleName,
       environment: data.environment,
       priority: data.priority,
       vmCount: data.vmSpecs.length,

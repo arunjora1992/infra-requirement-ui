@@ -71,6 +71,7 @@ model Requirement {
   title       String
   description String?
   projectName String
+  moduleName  String?
   environment Environment       @default(DEV)
   priority    Priority          @default(MEDIUM)
   status      RequirementStatus @default(SUBMITTED)
@@ -188,6 +189,30 @@ model RequirementEvent {
   createdAt     DateTime    @default(now())
 
   @@index([requirementId])
+}
+
+// --- Admin-managed lookup lists ---
+
+model Module {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model ManagerOption {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model OsVersion {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
 
 // --- NextAuth tables ---
