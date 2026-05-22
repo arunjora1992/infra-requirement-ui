@@ -32,7 +32,7 @@ export async function GET(req: Request) {
 
   if (format === "pdf") {
     const pdf = await buildRequirementsPdf(items);
-    return new NextResponse(pdf, {
+    return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${baseName}.pdf"`,

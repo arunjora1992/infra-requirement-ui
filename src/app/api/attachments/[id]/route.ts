@@ -22,7 +22,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!canSee) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const buf = await fs.readFile(uploadPath(att.storedName));
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf), {
     status: 200,
     headers: {
       "Content-Type": att.mimeType,
