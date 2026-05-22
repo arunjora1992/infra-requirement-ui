@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+dist
+build
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+uploads/*
+!uploads/.gitkeep
+prisma/dev.db*
+coverage
+.vercel
+next-env.d.ts
