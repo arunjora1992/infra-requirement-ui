@@ -2,10 +2,18 @@
 
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { LogIn } from "lucide-react";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginShell />}>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+function LoginInner() {
   const { status } = useSession();
   const router = useRouter();
   const params = useSearchParams();
@@ -15,6 +23,10 @@ export default function LoginPage() {
     if (status === "authenticated") router.replace(callbackUrl);
   }, [status, router, callbackUrl]);
 
+  return <LoginShell onSignIn={() => signIn("google", { callbackUrl })} />;
+}
+
+function LoginShell({ onSignIn }: { onSignIn?: () => void }) {
   return (
     <div className="grid place-items-center py-20">
       <div className="card p-8 w-full max-w-md text-center">
@@ -25,7 +37,8 @@ export default function LoginPage() {
         <p className="text-muted mt-1">Sign in with your Google account to continue.</p>
         <button
           className="btn btn-primary w-full mt-6 justify-center"
-          onClick={() => signIn("google", { callbackUrl })}
+          onClick={onSignIn}
+          disabled={!onSignIn}
         >
           Continue with Google
         </button>
